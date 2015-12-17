@@ -7,24 +7,33 @@
  * Version: 0.1
  * Plugin URI: https://github.com/WP-API/Basic-Auth
  */
+ 
 
-function json_basic_auth_handler( $user ) {
+function json_basic_auth_handler( $request ) {
 	global $wp_json_basic_auth_error;
 
 	$wp_json_basic_auth_error = null;
-
-	// Don't authenticate twice
-	if ( ! empty( $user ) ) {
-		return $user;
-	}
-
+ 
 	// Check that we're trying to authenticate
 	if ( !isset( $_SERVER['PHP_AUTH_USER'] ) ) {
-		return $user;
+		return $request;
 	}
 
 	$username = $_SERVER['PHP_AUTH_USER'];
+	$is_email = strpos($username, '@');
+	if($is_email){
+		$ud = get_user_by_email( $username );
+		$username = $ud->user_login;
+	}
 	$password = $_SERVER['PHP_AUTH_PW'];
+	$user = wp_authenticate($username, $password ); 
+
+		if( $user ) {
+		    wp_set_current_user( $user->ID, $user->user_login );
+		    wp_set_auth_cookie( $user->ID );
+		    do_action( 'wp_login', $user->user_login );
+		}
+
 
 	/**
 	 * In multi-site, wp_authenticate_spam_check filter is run on authentication. This filter calls
@@ -32,12 +41,7 @@ function json_basic_auth_handler( $user ) {
 	 * recursion and a stack overflow unless the current function is removed from the determine_current_user
 	 * filter during authentication.
 	 */
-	remove_filter( 'determine_current_user', 'json_basic_auth_handler', 20 );
-
-	$user = wp_authenticate( $username, $password );
-
-	add_filter( 'determine_current_user', 'json_basic_auth_handler', 20 );
-
+  
 	if ( is_wp_error( $user ) ) {
 		$wp_json_basic_auth_error = $user;
 		return null;
@@ -45,9 +49,9 @@ function json_basic_auth_handler( $user ) {
 
 	$wp_json_basic_auth_error = true;
 
-	return $user->ID;
+	return null;
 }
-add_filter( 'determine_current_user', 'json_basic_auth_handler', 20 );
+add_filter( 'rest_pre_dispatch', 'json_basic_auth_handler', 80 );
 
 function json_basic_auth_error( $error ) {
 	// Passthrough other errors
@@ -59,4 +63,4 @@ function json_basic_auth_error( $error ) {
 
 	return $wp_json_basic_auth_error;
 }
-add_filter( 'json_authentication_errors', 'json_basic_auth_error' );
+add_filter( 'json_basic_auth_error', 'json_basic_auth_error' );
